@@ -21,7 +21,7 @@ Install open-source Colima, Moby/Docker CLI, Kind, kubectl, Helm, OpenTofu, Triv
 ./scripts/demo.sh dev
 ```
 
-`check` runs application tests, Python lint and format checks, Helm lint and rendering, Hadolint Dockerfile checks, Trivy configuration checks, builds all four images, runs a catalog container health smoke test, produces SPDX SBOMs, and fails on unfixed HIGH or CRITICAL image vulnerabilities. `release` runs check first, plans and applies a Kind cluster, installs Cilium, Traefik, and metrics-server, loads images, deploys Helm, then performs the end-to-end demo. Outputs go to ignored `artifacts/`; local state, kubeconfig, and TLS key stay in ignored `.state/`.
+`check` runs application tests, Python lint and format checks, Helm lint and rendering, Trivy configuration checks, builds all four images, runs a catalog container health smoke test, produces SPDX SBOMs, and fails on unfixed HIGH or CRITICAL image vulnerabilities. Hadolint runs when installed; its absence is reported as a reduced check. `release` runs check first, plans and applies a Kind cluster, installs Cilium, Traefik, and metrics-server, loads images, deploys Helm, then performs the end-to-end demo. Outputs go to ignored `artifacts/`; local state, kubeconfig, and TLS key stay in ignored `.state/`.
 
 Dev and prod use the same code with separate state directories, clusters, namespaces, and host ports (`8443`, `9443`). Add a third environment by copying a tfvars file, choosing a unique environment name and port, and adding the name to the script allowlists. This environment design isolates state but does not provide cloud-level failure isolation on one laptop.
 

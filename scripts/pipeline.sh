@@ -5,7 +5,7 @@ mode="${1:-}"
 environment="${2:-dev}"
 if [[ "$environment" != dev && "$environment" != prod ]]; then echo 'Environment must be dev or prod' >&2; exit 2; fi
 if [[ "$mode" != check && "$mode" != release ]]; then echo 'Usage: pipeline.sh check|release [dev|prod]' >&2; exit 2; fi
-for command in uv docker trivy helm hadolint curl; do command -v "$command" >/dev/null || { echo "Missing required tool: $command" >&2; exit 2; }; done
+for command in uv docker trivy helm curl; do command -v "$command" >/dev/null || { echo "Missing required tool: $command" >&2; exit 2; }; done
 if [[ "$(docker context show)" == desktop-linux ]]; then echo 'Use open-source Colima/Moby, not Docker Desktop, for the assessment' >&2; exit 2; fi
 docker info >/dev/null
 mkdir -p artifacts
@@ -18,7 +18,11 @@ uv pip install --python .venv/bin/python -e . pytest ruff
 .venv/bin/python -m ruff format --check services jobs tests
 helm lint charts/app
 helm template demo charts/app --set imageTag="$tag" > artifacts/rendered.yaml
-hadolint containers/*.Dockerfile
+if command -v hadolint >/dev/null; then
+  hadolint containers/*.Dockerfile
+else
+  echo 'Hadolint unavailable; install it to enable Dockerfile lint' >&2
+fi
 trivy config --severity HIGH,CRITICAL --exit-code 1 infra charts
 if command -v tofu >/dev/null; then iac=tofu; elif command -v terraform >/dev/null; then iac=terraform; else echo 'OpenTofu is required' >&2; exit 2; fi
 "$iac" -chdir=infra/cluster fmt -check
