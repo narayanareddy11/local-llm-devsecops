@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       stage:
-        description: "Select lightweight checks, local release, or full scan"
+        description: "Select parallel checks, local release, or full scan"
         required: true
         default: check
         type: choice
@@ -21,85 +21,62 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  unit_tests:
-    name: "01 | Pytest focused service and chat checks"
+  app_tests:
+    name: "App | Focused Pytest and Ruff"
     if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
-      - run: uv run --with-requirements requirements.txt --with pytest pytest -q tests/test_services.py::test_catalog_contract tests/test_services.py::test_gateway_serves_web_chat
+      - name: Run focused tests and Python lint
+        run: |
+          uv run --with-requirements requirements.txt --with pytest --with ruff pytest -q tests/test_services.py::test_catalog_contract tests/test_services.py::test_gateway_serves_web_chat
+          uvx ruff check services jobs tests
+          uvx ruff format --check services jobs tests
 
-  ruff_lint:
-    name: "02 | Ruff lint"
+  helm_checks:
+    name: "Kubernetes | Helm lint and render"
     if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
-      - run: uvx ruff check services jobs tests
+      - name: Validate and render app chart
+        run: |
+          helm lint charts/app
+          helm template demo charts/app --set imageTag=check > /tmp/local-llm-rendered.yaml
 
-  ruff_format:
-    name: "03 | Ruff format"
+  infrastructure_checks:
+    name: "Infrastructure | OpenTofu and shell syntax"
     if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
-      - run: uvx ruff format --check services jobs tests
+      - name: Format IaC and parse scripts
+        run: |
+          tofu -chdir=infra/cluster fmt -check
+          bash -n scripts/*.sh
 
-  helm_lint:
-    name: "04 | Helm chart lint"
+  container_checks:
+    name: "Containers | Hadolint and pinned bases"
     if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
-      - run: helm lint charts/app
+      - name: Lint Dockerfiles and verify base digests
+        run: |
+          if command -v hadolint >/dev/null; then hadolint --ignore DL3008 containers/*.Dockerfile; else echo 'Hadolint unavailable'; fi
+          rg -q '^FROM .+@sha256:' containers/app.Dockerfile
+          rg -q '^FROM .+@sha256:' containers/llm.Dockerfile
 
-  helm_render:
-    name: "05 | Kubernetes manifest render"
+  model_web_checks:
+    name: "Model and Web | Manifest and chat contract"
     if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
-      - run: helm template demo charts/app --set imageTag=check > /tmp/local-llm-rendered.yaml
-
-  hadolint:
-    name: "06 | Dockerfile lint"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
-    runs-on: [self-hosted, macOS, ARM64, local-llm]
-    steps:
-      - uses: actions/checkout@v4
-      - run: if command -v hadolint >/dev/null; then hadolint --ignore DL3008 containers/*.Dockerfile; else echo 'Hadolint unavailable'; fi
-
-  shell_syntax:
-    name: "07 | Shell syntax"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
-    runs-on: [self-hosted, macOS, ARM64, local-llm]
-    steps:
-      - uses: actions/checkout@v4
-      - run: bash -n scripts/*.sh
-
-  tofu_format:
-    name: "08 | OpenTofu format"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
-    runs-on: [self-hosted, macOS, ARM64, local-llm]
-    steps:
-      - uses: actions/checkout@v4
-      - run: tofu -chdir=infra/cluster fmt -check
-
-  web_chat:
-    name: "09 | Browser chat contract"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
-    runs-on: [self-hosted, macOS, ARM64, local-llm]
-    steps:
-      - uses: actions/checkout@v4
-      - run: uv run --with-requirements requirements.txt --with pytest pytest -q tests/test_services.py::test_gateway_serves_web_chat
-
-  model_manifest:
-    name: "10 | Pinned model manifest"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
-    runs-on: [self-hosted, macOS, ARM64, local-llm]
-    steps:
-      - uses: actions/checkout@v4
-      - run: python3 -c 'import json; x=json.load(open("model/manifest.json")); assert len(x["revision"]) == 40 and len(x["sha256"]) == 64 and x["license"] == "Apache-2.0"; print("Pinned revision, SHA-256, and license verified")'
+      - name: Validate model metadata and browser chat
+        run: |
+          python3 -c 'import json; x=json.load(open("model/manifest.json")); assert len(x["revision"]) == 40 and len(x["sha256"]) == 64 and x["license"] == "Apache-2.0"'
+          uv run --with-requirements requirements.txt --with pytest pytest -q tests/test_services.py::test_gateway_serves_web_chat
 
   release:
     name: "Release | Docker Kind Helm Web Chat"
