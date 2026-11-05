@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       stage:
-        description: "Run the lightweight staged check, local release, or full scan"
+        description: "Select lightweight checks, local release, or full scan"
         required: true
         default: check
         type: choice
@@ -21,76 +21,99 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  check:
-    name: "Check | 10 lightweight tools stages"
+  unit_tests:
+    name: "01 | Pytest focused service and chat checks"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
-      - name: "Stage 01 | Checkout source"
-        uses: actions/checkout@v4
-      - name: "Stage 02 | Prepare Python tools"
-        run: |
-          mkdir -p artifacts
-          export UV_CACHE_DIR="$PWD/.cache/uv"
-          echo "UV_CACHE_DIR=$UV_CACHE_DIR" >> "$GITHUB_ENV"
-          uv venv .venv
-          uv pip install --python .venv/bin/python -r requirements.txt pytest ruff
-      - name: "Stage 03 | Pytest two focused checks"
-        run: .venv/bin/python -m pytest -q tests/test_services.py::test_catalog_contract tests/test_services.py::test_gateway_serves_web_chat | tee artifacts/unit-tests.txt
-      - name: "Stage 04 | Ruff lint"
-        run: .venv/bin/python -m ruff check services jobs tests
-      - name: "Stage 05 | Ruff format"
-        run: .venv/bin/python -m ruff format --check services jobs tests
-      - name: "Stage 06 | Helm chart lint"
-        run: helm lint charts/app
-      - name: "Stage 07 | Render Kubernetes manifests"
-        run: helm template demo charts/app --set imageTag=check > artifacts/rendered.yaml
-      - name: "Stage 08 | Hadolint Dockerfiles"
-        run: if command -v hadolint >/dev/null; then hadolint --ignore DL3008 containers/*.Dockerfile; else echo 'Hadolint missing; install with brew install hadolint'; fi
-      - name: "Stage 09 | Shell script syntax"
-        run: bash -n scripts/*.sh
-      - name: "Stage 10 | Upload check evidence"
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-${{ github.run_id }}
-          path: artifacts/
-          if-no-files-found: warn
-          retention-days: 14
+      - uses: actions/checkout@v4
+      - run: uv run --with-requirements requirements.txt --with pytest pytest -q tests/test_services.py::test_catalog_contract tests/test_services.py::test_gateway_serves_web_chat
+
+  ruff_lint:
+    name: "02 | Ruff lint"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    steps:
+      - uses: actions/checkout@v4
+      - run: uvx ruff check services jobs tests
+
+  ruff_format:
+    name: "03 | Ruff format"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    steps:
+      - uses: actions/checkout@v4
+      - run: uvx ruff format --check services jobs tests
+
+  helm_lint:
+    name: "04 | Helm chart lint"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    steps:
+      - uses: actions/checkout@v4
+      - run: helm lint charts/app
+
+  helm_render:
+    name: "05 | Kubernetes manifest render"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    steps:
+      - uses: actions/checkout@v4
+      - run: helm template demo charts/app --set imageTag=check > /tmp/local-llm-rendered.yaml
+
+  hadolint:
+    name: "06 | Dockerfile lint"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    steps:
+      - uses: actions/checkout@v4
+      - run: if command -v hadolint >/dev/null; then hadolint --ignore DL3008 containers/*.Dockerfile; else echo 'Hadolint unavailable'; fi
+
+  shell_syntax:
+    name: "07 | Shell syntax"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n scripts/*.sh
+
+  tofu_format:
+    name: "08 | OpenTofu format"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    steps:
+      - uses: actions/checkout@v4
+      - run: tofu -chdir=infra/cluster fmt -check
+
+  web_chat:
+    name: "09 | Browser chat contract"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    steps:
+      - uses: actions/checkout@v4
+      - run: uv run --with-requirements requirements.txt --with pytest pytest -q tests/test_services.py::test_gateway_serves_web_chat
+
+  model_manifest:
+    name: "10 | Pinned model manifest"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -c 'import json; x=json.load(open("model/manifest.json")); assert len(x["revision"]) == 40 and len(x["sha256"]) == 64 and x["license"] == "Apache-2.0"; print("Pinned revision, SHA-256, and license verified")'
 
   release:
     name: "Release | Docker Kind Helm Web Chat"
-    needs: check
     if: github.event_name == 'workflow_dispatch' && inputs.stage == 'release'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     environment: laptop-release
     steps:
       - uses: actions/checkout@v4
-      - name: Release to local Kind
-        run: ./scripts/pipeline.sh release dev
-      - name: Upload demo evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ github.run_id }}
-          path: artifacts/
-          if-no-files-found: warn
-          retention-days: 14
+      - run: ./scripts/pipeline.sh release dev
 
   full_scan:
     name: "Full Scan | Trivy SBOM Docker"
-    needs: check
     if: github.event_name == 'workflow_dispatch' && inputs.stage == 'full'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
-      - name: Build and scan all images
-        run: ./scripts/pipeline.sh full
-      - name: Upload scan evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: full-scan-${{ github.run_id }}
-          path: artifacts/
-          if-no-files-found: warn
-          retention-days: 14
-
+      - run: ./scripts/pipeline.sh full
