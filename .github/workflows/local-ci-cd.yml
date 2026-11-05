@@ -21,9 +21,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  checkout:
+    name: "Checkout | Source"
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    steps:
+      - uses: actions/checkout@v4
+      - run: git status --short
+
   app_tests:
     name: "App | Focused Pytest and Ruff"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +42,7 @@ jobs:
 
   helm_checks:
     name: "Kubernetes | Helm lint and render"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +53,7 @@ jobs:
 
   infrastructure_checks:
     name: "Infrastructure | OpenTofu and shell syntax"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +64,7 @@ jobs:
 
   container_checks:
     name: "Containers | Hadolint and pinned bases"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +76,7 @@ jobs:
 
   model_web_checks:
     name: "Model and Web | Manifest and chat contract"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage == 'check'
+    needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
@@ -78,8 +85,16 @@ jobs:
           python3 -c 'import json; x=json.load(open("model/manifest.json")); assert len(x["revision"]) == 40 and len(x["sha256"]) == 64 and x["license"] == "Apache-2.0"'
           uv run --with-requirements requirements.txt --with pytest pytest -q tests/test_services.py::test_gateway_serves_web_chat
 
+  verify:
+    name: "Verify | Parallel checks passed"
+    needs: [app_tests, helm_checks, infrastructure_checks, container_checks, model_web_checks]
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    steps:
+      - run: echo "All five independent check branches passed."
+
   release:
     name: "Release | Docker Kind Helm Web Chat"
+    needs: verify
     if: github.event_name == 'workflow_dispatch' && inputs.stage == 'release'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     environment: laptop-release
@@ -89,6 +104,7 @@ jobs:
 
   full_scan:
     name: "Full Scan | Trivy SBOM Docker"
+    needs: verify
     if: github.event_name == 'workflow_dispatch' && inputs.stage == 'full'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:

@@ -21,7 +21,7 @@ Install open-source Colima, Moby/Docker CLI, Kind, kubectl, Helm, OpenTofu, Triv
 ./scripts/pipeline.sh full        # separate complete image scan and SBOM run
 ```
 
-GitHub Actions runs five independent lightweight jobs in parallel: application tests and Ruff; Helm lint and rendering; OpenTofu and shell syntax; Dockerfile lint and pinned base checks; model manifest and browser chat contract. No check job depends on another. Docker/Kind release and full Trivy/SBOM scanning are separately selectable manual jobs. To deploy, open **Actions → Local DevSecOps CI CD → Run workflow**, select `release`, and keep the Mac runner online. Select `full` separately when you want the complete scan.
+GitHub Actions follows the example's shape: checkout, five independent check branches running in parallel, a verify gate, then a manually selected release or full scan. The check branches cover application tests/Ruff; Helm; OpenTofu/shell syntax; Dockerfiles/base digests; and model metadata/browser chat. Each job has no more than two steps. To deploy, open **Actions → Local DevSecOps CI CD → Run workflow**, select `release`, and keep the Mac runner online. Select `full` separately for Trivy and SBOM generation.
 
 After release, open `https://llm.local:8443/` in a browser. The local certificate is self-signed, so the browser will ask you to trust it for this demo. The page displays catalog items and sends questions to `/api/v1/ask`, which reaches the assistant and local model. To inspect the page without the TLS warning, run `KUBECONFIG=$PWD/.state/dev/kubeconfig kubectl -n app-dev port-forward svc/gateway 18000:8000` and open `http://localhost:18000/`; use the HTTPS ingress URL for the actual assessment demonstration.
 
@@ -31,7 +31,7 @@ Dev and prod use the same code with separate state directories, clusters, namesp
 
 ## Self-hosted GitHub Actions
 
-The workflow at `.github/workflows/local-ci-cd.yml` runs check on pull requests and main commits. Release runs after check on main or a `v*` tag. It requires a self-hosted macOS ARM64 runner with the `local-llm` label. Install tools above, authenticate `gh`, then run `./scripts/setup-runner.sh` in a trusted local clone and start `.runner/run.sh` in a terminal. The setup script requests a short-lived runner registration token without printing it. GitHub Actions runner binaries are downloaded from the official `actions/runner` release. Treat this runner as trusted: untrusted pull requests can execute code on the Mac. Use a dedicated account or disable PR triggers before accepting outside contributions. Configure the `laptop-release` GitHub Environment to limit who can initiate release. No cloud account or hosted registry is used in deployment; GitHub only orchestrates local commands and stores CI evidence.
+The workflow follows the example pipeline: a checkout job fans out to five independent checks, which run in parallel, then a verification gate enables the manually selected release or full scan. It requires a self-hosted macOS ARM64 runner with the `local-llm` label. The runner is already registered on this Mac. Keep `.runner/run.sh` running while GitHub Actions executes jobs. Treat the runner as trusted because repository code runs directly on the Mac. No cloud account or hosted registry is used in deployment; GitHub orchestrates local commands and stores CI results.
 
 ## Model and security
 
