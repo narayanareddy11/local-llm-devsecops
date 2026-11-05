@@ -129,6 +129,9 @@ jobs:
         run: |
           export KUBECONFIG="$HOME/.local/share/local-llm-devsecops/dev/kubeconfig"
           kubectl -n app-dev get pods,services,endpoints,jobs -o wide
+          kubectl -n app-dev get networkpolicies -o wide
           kubectl -n app-dev describe pods -l app=llm
+          kubectl -n app-dev logs -l app=gateway --all-containers=true --prefix=true --tail=80 || true
           kubectl -n app-dev logs -l app=assistant --all-containers=true --prefix=true --tail=80 || true
           kubectl -n app-dev logs -l app=llm --all-containers=true --prefix=true --tail=120 || true
+          kubectl -n app-dev exec deployment/gateway -- python -c 'import json,urllib.request; payload=json.dumps({"question":"Reply with one short greeting.","item_id":"item-1"}).encode(); request=urllib.request.Request("http://assistant:8000/answer",data=payload,headers={"Content-Type":"application/json"}); print(urllib.request.urlopen(request,timeout=120).read().decode())' || true
