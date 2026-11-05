@@ -12,7 +12,7 @@ mkdir -p artifacts
 tag="$(git rev-parse --short=12 HEAD)"
 export UV_CACHE_DIR="$PWD/.cache/uv"
 uv venv .venv >/dev/null
-uv pip install --python .venv/bin/python -e . pytest ruff
+uv pip install --python .venv/bin/python -r requirements.txt pytest ruff
 .venv/bin/python -m pytest -q | tee artifacts/unit-tests.txt
 .venv/bin/python -m ruff check services jobs tests
 .venv/bin/python -m ruff format --check services jobs tests
