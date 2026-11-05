@@ -100,6 +100,14 @@ for role in gateway catalog assistant llm; do kind load docker-image "local-llm/
 kubectl -n "$namespace" delete job model-download --ignore-not-found --wait=true
 helm upgrade --install app charts/app --namespace "$namespace" --set "imageTag=$tag" --set "environment=$environment" --set ipAllowList.enabled=false --wait --wait-for-jobs --timeout 15m --history-max 5
 kubectl -n "$namespace" get pods,jobs,hpa,ingress -o wide > "artifacts/$environment-resources.txt"
-"$PWD/scripts/demo.sh" "$environment" | tee "artifacts/$environment-demo.txt"
+if ! "$PWD/scripts/demo.sh" "$environment" 2>&1 | tee "artifacts/$environment-demo.txt"; then
+  echo "Release smoke test failed; collecting Kubernetes diagnostics" >&2
+  kubectl -n "$namespace" get pods,services,endpoints,jobs,ingress,networkpolicies -o wide > "artifacts/$environment-diagnostics.txt" 2>&1 || true
+  kubectl -n "$namespace" get events --sort-by=.lastTimestamp >> "artifacts/$environment-diagnostics.txt" 2>&1 || true
+  for role in gateway catalog assistant llm; do
+    kubectl -n "$namespace" logs -l "app=$role" --all-containers=true --prefix=true --tail=150 > "artifacts/$environment-$role.log" 2>&1 || true
+  done
+  exit 1
+fi
 echo "Release passed for $environment at $tag"
 

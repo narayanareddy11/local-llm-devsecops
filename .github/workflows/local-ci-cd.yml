@@ -26,7 +26,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || (inputs.stage != 'release-only' && inputs.stage != 'diagnose')
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: git status --short
 
   app_tests:
@@ -35,7 +35,7 @@ jobs:
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Run focused tests and Python lint
         run: |
           uv run --with-requirements requirements.txt --with pytest --with ruff pytest -q tests/test_services.py::test_catalog_contract tests/test_services.py::test_gateway_serves_web_chat
@@ -48,7 +48,7 @@ jobs:
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate and render app chart
         run: |
           helm lint charts/app
@@ -60,7 +60,7 @@ jobs:
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Format IaC and parse scripts
         run: |
           tofu -chdir=infra/cluster fmt -check
@@ -72,7 +72,7 @@ jobs:
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Lint Dockerfiles and verify base digests
         run: |
           if command -v hadolint >/dev/null; then hadolint --ignore DL3008 containers/*.Dockerfile; else echo 'Hadolint unavailable'; fi
@@ -85,7 +85,7 @@ jobs:
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate model metadata and browser chat
         run: |
           python3 -c 'import json; x=json.load(open("model/manifest.json")); assert len(x["revision"]) == 40 and len(x["sha256"]) == 64 and x["license"] == "Apache-2.0"'
@@ -108,8 +108,15 @@ jobs:
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     environment: laptop-release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: ./scripts/pipeline.sh release dev
+      - name: Upload release evidence and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: warn
 
   full_scan:
     name: "Full Scan | Trivy SBOM Docker"
@@ -117,8 +124,15 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.stage == 'full'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: ./scripts/pipeline.sh full
+      - name: Upload scan evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-scan-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: warn
 
   diagnostics:
     name: "Diagnostics | Local chat and model pods"
