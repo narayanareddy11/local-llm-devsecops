@@ -71,8 +71,8 @@ jobs:
       - name: Lint Dockerfiles and verify base digests
         run: |
           if command -v hadolint >/dev/null; then hadolint --ignore DL3008 containers/*.Dockerfile; else echo 'Hadolint unavailable'; fi
-          rg -q '^FROM .+@sha256:' containers/app.Dockerfile
-          rg -q '^FROM .+@sha256:' containers/llm.Dockerfile
+          grep -Eq '^FROM .+@sha256:' containers/app.Dockerfile
+          grep -Eq '^FROM .+@sha256:' containers/llm.Dockerfile
 
   model_web_checks:
     name: "Model and Web | Manifest and chat contract"
