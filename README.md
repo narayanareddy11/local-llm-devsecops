@@ -146,6 +146,68 @@ Application pods are non-root with dropped capabilities, read-only root filesyst
 
 Before presenting, verify `artifacts/dev-demo.txt` contains a real answer for `item-1`, show the model Job and CronJob, show HPA and scan/SBOM output, and run a negative ingress request from another container network source. Use `helm -n app-dev history app` and `helm -n app-dev rollback app <previous-revision> --wait` for rollback. Teardown: set `LOCAL_LLM_STATE_DIR=$HOME/.local/share/local-llm-devsecops` and `KUBECONFIG=$LOCAL_LLM_STATE_DIR/dev/kubeconfig`, run `helm -n app-dev uninstall app`, `helm -n ingress-system uninstall traefik`, `helm -n kube-system uninstall cilium metrics-server`, then `tofu -chdir=infra/cluster destroy -var-file="$PWD/environments/dev.tfvars" -var="kubeconfig_path=$KUBECONFIG"`. Run the corresponding commands for prod separately. Keep the local state directory until after destroy.
 
+## Kind, pod access, and final verification
+
+Run these commands after `./scripts/pipeline.sh release dev` to confirm that Kind, Kubernetes, and every application workload are working. Use `ENV=prod` and `PORT=9443` for the production environment.
+
+```bash
+ENV=dev
+PORT=8443
+STATE_ROOT="${LOCAL_LLM_STATE_DIR:-$HOME/.local/share/local-llm-devsecops}"
+CLUSTER="llm-$ENV"
+NAMESPACE="app-$ENV"
+export KUBECONFIG="$STATE_ROOT/$ENV/kubeconfig"
+
+# 1. Check that Kind and the Kubernetes context are available.
+kind get clusters
+kind get nodes --name "$CLUSTER"
+kubectl config current-context
+kubectl cluster-info --context "kind-$CLUSTER"
+
+# 2. Check pods, deployments, services, jobs, ingress, and HPA.
+kubectl -n "$NAMESPACE" get pods -o wide
+kubectl -n "$NAMESPACE" get deployments,services,endpoints,ingress,jobs,cronjobs,hpa
+
+# 3. Access a running gateway pod and inspect its health from inside the cluster.
+POD="$(kubectl -n "$NAMESPACE" get pods -l app=gateway -o jsonpath='{.items[0].metadata.name}')"
+kubectl -n "$NAMESPACE" describe pod "$POD"
+kubectl -n "$NAMESPACE" logs "$POD" --tail=100
+kubectl -n "$NAMESPACE" exec "$POD" -- python -c \
+  'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8000/healthz", timeout=10).read().decode())'
+
+# 4. Verify rollout and the model download job.
+kubectl -n "$NAMESPACE" wait --for=condition=complete job/model-download --timeout=900s
+for deployment in gateway catalog assistant llm; do
+  kubectl -n "$NAMESPACE" rollout status "deployment/$deployment" --timeout=600s
+done
+
+# 5. Verify the external HTTPS route and chat response.
+curl --fail --silent --show-error \
+  --cacert "$STATE_ROOT/$ENV/tls.crt" \
+  --resolve "llm.local:$PORT:127.0.0.1" \
+  "https://llm.local:$PORT/healthz"
+curl --fail --silent --show-error \
+  --cacert "$STATE_ROOT/$ENV/tls.crt" \
+  --resolve "llm.local:$PORT:127.0.0.1" \
+  "https://llm.local:$PORT/api/v1/items"
+curl --fail --silent --show-error \
+  --cacert "$STATE_ROOT/$ENV/tls.crt" \
+  --resolve "llm.local:$PORT:127.0.0.1" \
+  -H 'Content-Type: application/json' \
+  --data '{"question":"Summarize this item in one sentence","item_id":"item-1"}' \
+  "https://llm.local:$PORT/api/v1/ask"
+
+# 6. Run the complete repository smoke-test verification.
+./scripts/demo.sh "$ENV"
+```
+
+For direct browser access without TLS setup, use a local port-forward in a separate terminal:
+
+```bash
+kubectl -n "$NAMESPACE" port-forward svc/gateway 18000:8000
+# Open http://localhost:18000/ in the browser.
+```
+
 ## Chat tracing and LangSmith
 
 Application logs include a request ID, route, status, and latency without recording prompts or answers. This is local tracing for the assessment. [LangSmith](https://docs.smith.langchain.com/) sends traces to a hosted service, so it is deliberately not enabled in the local-only pipeline. Connecting it would require a separate opt-in configuration, an API key in a Kubernetes Secret, limited trace content, and an approved outbound route. No LangSmith connection has been tested or claimed.
