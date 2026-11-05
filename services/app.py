@@ -6,11 +6,12 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     CollectorRegistry,
@@ -143,6 +144,10 @@ def create_app(role: str, transport=None) -> FastAPI:
             raise HTTPException(404, "Item not found")
 
     elif role == "gateway":
+
+        @app.get("/", response_class=HTMLResponse)
+        async def web_chat():
+            return Path(__file__).with_name("web").joinpath("index.html").read_text()
 
         @app.get("/api/v1/items")
         async def items(request: Request):

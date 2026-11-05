@@ -86,3 +86,11 @@ def test_gateway_forwards_question():
         assert response.json() == {"answer": "Hi"}
         assert "x-request-id" in response.headers
         assert "app_requests_total" in client.get("/metrics").text
+
+
+def test_gateway_serves_web_chat():
+    with TestClient(create_app("gateway")) as client:
+        page = client.get("/")
+        assert page.status_code == 200
+        assert "Local Catalog Assistant" in page.text
+        assert "/api/v1/ask" in page.text

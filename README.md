@@ -16,12 +16,16 @@ The repository includes application code, tests, pinned model metadata, images, 
 Install open-source Colima, Moby/Docker CLI, Kind, kubectl, Helm, OpenTofu, Trivy, Hadolint, uv, OpenSSL, and GitHub CLI. `brew install colima docker kind kubectl helm opentofu trivy hadolint uv gh` is a convenient setup on macOS. Use `colima start --cpu 6 --memory 8 --disk 40` and `docker context use colima`; then confirm `docker context show` says `colima`.
 
 ```bash
-./scripts/pipeline.sh check
-./scripts/pipeline.sh release dev
-./scripts/demo.sh dev
+./scripts/pipeline.sh check       # quick interview proof on every push
+./scripts/pipeline.sh release dev # manual Kubernetes demo
+./scripts/pipeline.sh full        # separate complete image scan and SBOM run
 ```
 
-`check` runs application tests, Python lint and format checks, Helm lint and rendering, Trivy configuration checks, builds all four images, runs a catalog container health smoke test, produces SPDX SBOMs, and fails on unfixed HIGH or CRITICAL image vulnerabilities. Hadolint runs when installed; its absence is reported as a reduced check. `release` runs check first, plans and applies a Kind cluster, installs Cilium, Traefik, and metrics-server, loads images, deploys Helm, then performs the end-to-end demo. Outputs go to ignored `artifacts/`; local state, kubeconfig, and TLS key stay in ignored `.state/`.
+GitHub Actions shows three named stages: **Check | Pytest Ruff Helm Hadolint**, **Release | Docker Kind Helm Web Chat**, and **Full Scan | Trivy SBOM Docker**. A push runs only the lightweight check. To deploy, open **Actions → Local DevSecOps CI CD → Run workflow**, select `release`, and keep the Mac runner online. Select `full` separately when you want all tests and security scans.
+
+After release, open `https://llm.local:8443/` in a browser. The local certificate is self-signed, so the browser will ask you to trust it for this demo. The page displays catalog items and sends questions to `/api/v1/ask`, which reaches the assistant and local model. To inspect the page without the TLS warning, run `KUBECONFIG=$PWD/.state/dev/kubeconfig kubectl -n app-dev port-forward svc/gateway 18000:8000` and open `http://localhost:18000/`; use the HTTPS ingress URL for the actual assessment demonstration.
+
+`check` runs two representative tests, Ruff, Helm lint/render, and Hadolint when installed. `release` runs check first, builds the four images, smoke-tests the catalog container, plans and applies a Kind cluster, installs Cilium, Traefik, and metrics-server, loads images, deploys Helm, then performs the end-to-end demo. `full` separately runs all tests, Trivy IaC and image scans, and SPDX SBOM generation with a HIGH/CRITICAL vulnerability gate. Outputs go to ignored `artifacts/`; local state, kubeconfig, and TLS key stay in ignored `.state/`.
 
 Dev and prod use the same code with separate state directories, clusters, namespaces, and host ports (`8443`, `9443`). Add a third environment by copying a tfvars file, choosing a unique environment name and port, and adding the name to the script allowlists. This environment design isolates state but does not provide cloud-level failure isolation on one laptop.
 

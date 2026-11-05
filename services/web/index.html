@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local Catalog Assistant</title>
+  <style>
+    body{font:16px system-ui,sans-serif;background:#f5f7fa;color:#17212f;margin:0}
+    main{max-width:720px;margin:7vh auto;padding:24px}
+    h1{font-size:2rem;margin-bottom:8px}p{color:#4b5a6b}
+    form,.messages{background:white;border:1px solid #d5dce5;border-radius:12px;padding:20px;margin-top:20px}
+    label{display:block;font-weight:600;margin:14px 0 6px}select,textarea,button{font:inherit}
+    select,textarea{box-sizing:border-box;width:100%;padding:12px;border:1px solid #aeb9c8;border-radius:8px}
+    textarea{min-height:100px;resize:vertical}button{margin-top:16px;border:0;border-radius:8px;background:#174ea6;color:white;padding:12px 18px;cursor:pointer}
+    button:disabled{opacity:.6;cursor:wait}.message{padding:14px 0;border-bottom:1px solid #e5eaf0;white-space:pre-wrap}
+    .role{font-size:.8rem;font-weight:700;color:#48627e;text-transform:uppercase;margin-bottom:5px}.error{color:#9b1c1c}
+  </style>
+</head>
+<body><main>
+  <h1>Local Catalog Assistant</h1>
+  <p>Ask the CPU-only model about an item. Requests stay in the local Kubernetes cluster.</p>
+  <form id="chat-form">
+    <label for="item">Catalog item</label><select id="item"><option value="">No item</option></select>
+    <label for="question">Question</label>
+    <textarea id="question" maxlength="2000" required placeholder="Summarize this item in one sentence"></textarea>
+    <button id="send" type="submit">Ask assistant</button>
+  </form>
+  <section class="messages" aria-live="polite"><strong>Conversation</strong><div id="messages"></div></section>
+  <p><small>Local proof of concept · Verify important details.</small></p>
+</main>
+<script>
+const item=document.getElementById('item'),messages=document.getElementById('messages');
+function add(role,text,error=false){const box=document.createElement('div');box.className='message'+(error?' error':'');const tag=document.createElement('div');tag.className='role';tag.textContent=role;const body=document.createElement('div');body.textContent=text;box.append(tag,body);messages.append(box);}
+fetch('/api/v1/items').then(r=>{if(!r.ok)throw Error('Catalog unavailable');return r.json()}).then(items=>{for(const x of items){const option=document.createElement('option');option.value=x.id;option.textContent=x.name;item.append(option)}}).catch(()=>add('System','Catalog unavailable',true));
+document.getElementById('chat-form').addEventListener('submit',async event=>{event.preventDefault();const question=document.getElementById('question').value.trim();if(!question)return;const button=document.getElementById('send');button.disabled=true;add('You',question);try{const r=await fetch('/api/v1/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,item_id:item.value||null})});const data=await r.json();if(!r.ok)throw Error(data.detail||'Assistant unavailable');add('Assistant',data.answer)}catch(e){add('System',e.message,true)}finally{button.disabled=false}});
+</script></body></html>
