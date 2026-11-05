@@ -1,0 +1,12 @@
+.git
+.venv
+.state
+.cache
+.tools
+artifacts
+__pycache__
+*.gguf
+*.key
+*.pem
+*.docx
+

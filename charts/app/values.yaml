@@ -1,0 +1,16 @@
+environment: dev
+imageTag: local
+host: llm.local
+tlsSecret: gateway-tls
+allowedCIDRs:
+  - 127.0.0.1/32
+modelImage: local-llm/model-job:local
+gateway:
+  replicas: 2
+catalog:
+  replicas: 1
+assistant:
+  replicas: 1
+llm:
+  replicas: 1
+

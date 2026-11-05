@@ -1,0 +1,51 @@
+name: Local DevSecOps CI CD
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-llm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check local runtime and code
+        run: ./scripts/pipeline.sh check
+      - name: Upload security evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+  release:
+    needs: check
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    timeout-minutes: 120
+    environment: laptop-release
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release to local Kind
+        run: ./scripts/pipeline.sh release dev
+      - name: Upload demo evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
