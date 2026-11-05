@@ -23,7 +23,9 @@ if command -v hadolint >/dev/null; then
 else
   echo 'Hadolint unavailable; install it to enable Dockerfile lint' >&2
 fi
-trivy config --severity HIGH,CRITICAL --exit-code 1 infra charts
+for config_dir in infra charts; do
+  trivy config --severity HIGH,CRITICAL --exit-code 1 "$config_dir"
+done
 if command -v tofu >/dev/null; then iac=tofu; elif command -v terraform >/dev/null; then iac=terraform; else echo 'OpenTofu is required' >&2; exit 2; fi
 "$iac" -chdir=infra/cluster fmt -check
 for role in gateway catalog assistant; do
