@@ -9,7 +9,7 @@ for command in uv helm; do command -v "$command" >/dev/null || { echo "Missing r
 mkdir -p artifacts
 tag="$(git rev-parse --short=12 HEAD)"
 export UV_CACHE_DIR="$PWD/.cache/uv"
-uv venv .venv >/dev/null
+if [[ ! -x .venv/bin/python ]]; then uv venv --clear .venv >/dev/null; fi
 uv pip install --python .venv/bin/python -r requirements.txt pytest ruff
 .venv/bin/python -m pytest -q tests/test_services.py::test_catalog_contract tests/test_services.py::test_gateway_serves_web_chat | tee artifacts/unit-tests.txt
 .venv/bin/python -m ruff check services jobs tests

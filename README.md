@@ -1,17 +1,36 @@
-# Local LLM DevSecOps deployment
+# Local LLM DevSecOps — v1.0.0
 
-This repository implements the take-home assessment as a laptop-only proof of concept. It uses three FastAPI services, a CPU-only `llama.cpp` workload, Kind, Cilium, Traefik, OpenTofu-compatible IaC, and a self-hosted GitHub Actions runner on macOS ARM64. The private catalog and inference services use ClusterIP only. The only public route is the gateway through TLS.
+This repository implements the take-home assessment as a laptop-only proof of concept. It uses three FastAPI services, a CPU-only `llama.cpp` workload, Kind, Cilium, Traefik, OpenTofu-compatible IaC, and a self-hosted GitHub Actions runner on macOS ARM64. The private catalog and inference services use ClusterIP only. The only exposed route is the localhost gateway through TLS.
 
 ```text
-Mac localhost:8443 -> Traefik TLS/IP allowlist -> gateway
+Mac localhost:8443 -> Traefik TLS -> gateway
                                             |-> catalog
                                             |-> assistant -> catalog + llama.cpp -> model PVC
 Hugging Face (one-time download only) -> Job -> model PVC
 ```
 
+## Local chat app
+
+The app runs on the Mac's local Kubernetes cluster. It is not a public internet service.
+
+- Web chat: **https://llm.local:8443/**
+- Health: `https://llm.local:8443/healthz`
+- Catalog: `https://llm.local:8443/api/v1/items`
+- Chat API: `POST https://llm.local:8443/api/v1/ask`
+
+If `llm.local` does not resolve on the Mac, add `127.0.0.1 llm.local` to `/etc/hosts`. The demo uses a local self-signed certificate; accept the browser warning for this laptop-only proof of concept. In the UI, ask “Summarize this item in one sentence” and select `item-1` to exercise Qwen through the Kubernetes services.
+
+For a browser test without ingress or TLS, run `KUBECONFIG=$HOME/.local/share/local-llm-devsecops/dev/kubeconfig kubectl -n app-dev port-forward svc/gateway 18000:8000` and open **http://localhost:18000/**. The chat API request can also be sent with:
+
+```bash
+curl --fail --silent --show-error http://localhost:18000/api/v1/ask \
+  -H 'Content-Type: application/json' \
+  --data '{"question":"Summarize this item in one sentence","item_id":"item-1"}'
+```
+
 ## Status and prerequisites
 
-The repository includes application code, tests, pinned model metadata, images, a Kind cluster definition, Helm chart, a check/release script, and GitHub Actions workflow. A complete cluster and pipeline run has **not yet been verified** on this Mac; do not present it as a passing demo until the GitHub run and commands below pass. The current machine has an ARM64 Docker Desktop context; switch to open-source [Colima](https://colima.run/docs/installation/) before running this assessment. Allow at least 6 CPU cores, 8 GiB container VM memory, and 10 GiB free disk. Two full environments should run sequentially on an 8 GiB VM.
+The repository includes application code, focused tests, pinned model metadata, container images, a Kind cluster definition, Helm chart, OpenTofu configuration, and GitHub Actions workflows. The supported demo uses an ARM64 Mac with open-source [Colima](https://colima.run/docs/installation/). Allow at least 6 CPU cores, 8 GiB container VM memory, and 10 GiB free disk.
 
 Install open-source Colima, Moby/Docker CLI, Kind, kubectl, Helm, OpenTofu, Trivy, Hadolint, uv, OpenSSL, and GitHub CLI. `brew install colima docker kind kubectl helm opentofu trivy hadolint uv gh` is a convenient setup on macOS. Use `colima start --cpu 6 --memory 8 --disk 40` and `docker context use colima`; then confirm `docker context show` says `colima`.
 
@@ -21,11 +40,11 @@ Install open-source Colima, Moby/Docker CLI, Kind, kubectl, Helm, OpenTofu, Triv
 ./scripts/pipeline.sh full        # separate complete image scan and SBOM run
 ```
 
-GitHub Actions follows the example's shape: checkout, five independent check branches running in parallel, a verify gate, then a manually selected release or full scan. The check branches cover application tests/Ruff; Helm; OpenTofu/shell syntax; Dockerfiles/base digests; and model metadata/browser chat. Each job has no more than two steps. To deploy, open **Actions → Local DevSecOps CI CD → Run workflow**, select `release`, and keep the Mac runner online. Select `release-only` to retry just the deployment job after checks have passed, or select `full` for Trivy and SBOM generation.
+GitHub Actions follows the assessment pipeline: checkout, five independent check branches, a verify gate, then a manually selected release or full scan. The branches cover application tests/Ruff; Helm; OpenTofu/shell syntax; Dockerfiles/base digests; and model metadata/browser chat. GitHub can schedule independent branches concurrently, subject to available self-hosted runner capacity. Each check job has no more than two steps. To deploy, open **Actions → Local DevSecOps CI CD → Run workflow**, select `release`, and keep the Mac runner online. Select `release-only` to rerun only deployment, `diagnose` for one Kubernetes diagnostics job, or `full` for Trivy and SBOM generation.
 
-After release, open `https://llm.local:8443/` in a browser. Add `127.0.0.1 llm.local` to `/etc/hosts` if the name does not resolve. The local certificate is self-signed, so the browser will ask you to trust it for this demo. The page displays catalog items and sends questions to `/api/v1/ask`, which reaches the assistant and local model. To bypass ingress and TLS while diagnosing, run `KUBECONFIG=$HOME/.local/share/local-llm-devsecops/dev/kubeconfig kubectl -n app-dev port-forward svc/gateway 18000:8000` and open `http://localhost:18000/`.
+After deployment, `./scripts/demo.sh dev` repeats the health, catalog, chat, HPA, and model-check smoke tests.
 
-`check` runs two representative tests, Ruff, Helm lint/render, and Hadolint when installed. `release` runs check first, builds the four images, smoke-tests the catalog container, plans and applies a Kind cluster, installs Cilium, Traefik, and metrics-server, loads images, deploys Helm, then performs the end-to-end demo. `full` separately runs all tests, Trivy IaC and image scans, and SPDX SBOM generation with a HIGH/CRITICAL vulnerability gate. Outputs go to ignored `artifacts/`. Persistent OpenTofu state, kubeconfig, and TLS key are stored outside the checkout at `$HOME/.local/share/local-llm-devsecops/<environment>` (override with `LOCAL_LLM_STATE_DIR`) so GitHub Actions checkout cleanup cannot erase them. If an existing Kind cluster has no state file, the release script reuses it and skips OpenTofu for that cluster; delete the cluster and rerun release to return it to IaC management.
+`check` runs two representative tests, Ruff, Helm lint/render, and Hadolint when installed. `release` runs those checks, builds the app and model images, smoke-tests the catalog container, plans/applies Kind when needed, installs Cilium, Traefik, and metrics-server, loads images, deploys Helm, and verifies the HTTPS chat endpoint. The chat smoke test retries briefly to allow the local model to warm up. `full` separately runs all tests, Trivy IaC and image scans, and SPDX SBOM generation with a HIGH/CRITICAL vulnerability gate. Outputs go to ignored `artifacts/`. Persistent OpenTofu state, kubeconfig, and TLS key are stored outside the checkout at `$HOME/.local/share/local-llm-devsecops/<environment>` (override with `LOCAL_LLM_STATE_DIR`) so GitHub Actions checkout cleanup cannot erase them. If an existing Kind cluster has no state file, release reuses it because the Kind provider cannot import that cluster; delete the cluster and rerun release to return it to IaC management.
 
 Dev and prod use the same code with separate state directories, clusters, namespaces, and host ports (`8443`, `9443`). Add a third environment by copying a tfvars file, choosing a unique environment name and port, and adding the name to the script allowlists. This environment design isolates state but does not provide cloud-level failure isolation on one laptop.
 
@@ -64,6 +83,10 @@ The release pipeline deploys directly to a local Kind cluster. It does not yet u
 
 ## AI use
 
-Codex was used to draft the service code, Kubernetes chart, pipeline, and documentation from the assessment. Representative prompts were “read the complete assessment” and “use this existing GitHub repo with GitHub Actions on my self-hosted Mac.” I accepted the simple service boundaries and revised the model delivery path and ingress source handling during review. Tests and a live cluster run are required to validate generated code. Main risks are invented Kubernetes configuration, unsafe network policy assumptions, model licensing mistakes, and hallucinated demo evidence; this README states unverified work explicitly.
+Codex was used to draft the service code, Kubernetes chart, pipeline, and documentation from the assessment. Representative prompts were “read the complete assessment” and “use this existing GitHub repo with GitHub Actions on my self-hosted Mac.” The lightweight CI checks and release smoke test provide verification evidence. Follow-up work includes a negative ingress test, a recorded rollback exercise, fully locked Python dependencies, and a broader dashboard/alerting stack.
 
 Model: [Qwen model card](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF). Runtime: [llama.cpp](https://github.com/ggml-org/llama.cpp). Kind: [Kind quick start](https://kind.sigs.k8s.io/docs/user/quick-start/).
+
+## License
+
+Repository code is released under the [MIT License](LICENSE). The Qwen model weights are separately licensed under Apache-2.0 by their publisher; see the [model card](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF). Third-party tools and dependencies retain their own licenses.

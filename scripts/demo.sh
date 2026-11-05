@@ -11,7 +11,15 @@ if [[ "$environment" == prod ]]; then port=9443; fi
 kubectl -n "app-$environment" wait --for=condition=complete job/model-download --timeout=900s
 curl --fail --silent --show-error --cacert "$state/tls.crt" --resolve "llm.local:$port:127.0.0.1" "https://llm.local:$port/healthz"
 curl --fail --silent --show-error --cacert "$state/tls.crt" --resolve "llm.local:$port:127.0.0.1" "https://llm.local:$port/api/v1/items"
-curl --fail --silent --show-error --cacert "$state/tls.crt" --resolve "llm.local:$port:127.0.0.1" -H 'Content-Type: application/json' --data '{"question":"Summarize this item in one sentence","item_id":"item-1"}' "https://llm.local:$port/api/v1/ask"
+for attempt in {1..5}; do
+  if curl --fail --silent --show-error --max-time 120 --cacert "$state/tls.crt" --resolve "llm.local:$port:127.0.0.1" -H 'Content-Type: application/json' --data '{"question":"Summarize this item in one sentence","item_id":"item-1"}' "https://llm.local:$port/api/v1/ask"; then
+    break
+  fi
+  if [[ "$attempt" == 5 ]]; then exit 1; fi
+  echo "Chat smoke test attempt $attempt failed; retrying after model warm-up" >&2
+  sleep 3
+done
+printf '\n'
 kubectl -n "app-$environment" get hpa gateway
 kubectl -n "app-$environment" create job --from=cronjob/model-check "model-check-demo-$(date +%s)"
 
