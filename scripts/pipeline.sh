@@ -88,8 +88,12 @@ fi
 kubectl -n "$namespace" create secret tls gateway-tls --cert="$state/tls.crt" --key="$state/tls.key" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 for role in gateway catalog assistant llm; do kind load docker-image "local-llm/$role:$tag" --name "$cluster"; done
 gateway_ip="$(docker inspect "$cluster-control-plane" --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}')"
-if [[ -z "$gateway_ip" ]]; then echo 'Cannot determine ingress source IP' >&2; exit 1; fi
-helm upgrade --install app charts/app --namespace "$namespace" --set "imageTag=$tag" --set "environment=$environment" --set "allowedCIDRs[0]=$gateway_ip/32" --wait --wait-for-jobs --timeout 15m --history-max 5
+node_ip="$(docker inspect "$cluster-control-plane" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')"
+if [[ -z "$gateway_ip" || -z "$node_ip" ]]; then echo 'Cannot determine local ingress source IPs' >&2; exit 1; fi
+# Kind's published localhost port can reach Traefik with the bridge gateway,
+# the Kind node address, or loopback as the peer address depending on Docker's
+# port-forward implementation. The host port itself is bound to 127.0.0.1.
+helm upgrade --install app charts/app --namespace "$namespace" --set "imageTag=$tag" --set "environment=$environment" --set "allowedCIDRs[0]=$gateway_ip/32" --set "allowedCIDRs[1]=$node_ip/32" --set "allowedCIDRs[2]=127.0.0.1/32" --wait --wait-for-jobs --timeout 15m --history-max 5
 kubectl -n "$namespace" get pods,jobs,hpa,ingress -o wide > "artifacts/$environment-resources.txt"
 "$PWD/scripts/demo.sh" "$environment" | tee "artifacts/$environment-demo.txt"
 echo "Release passed for $environment at $tag"
