@@ -1,9 +1,25 @@
 [project]
 name = "local-llm-devsecops"
-version = "0.1.0"
-description = "A laptop-only Kubernetes LLM deployment assessment"
+version = "1.0.0"
+description = "A local-first DevSecOps platform for running a secure CPU-only LLM on Kubernetes with FastAPI, Helm, OpenTofu, and GitHub Actions."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Narayana Reddy" }]
+keywords = ["llm", "kubernetes", "devsecops", "fastapi", "helm", "opentofu", "kind"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Distributed Computing",
+]
 requires-python = ">=3.12"
 dependencies = ["fastapi>=0.115,<1", "httpx>=0.28,<1", "uvicorn>=0.34,<1", "prometheus-client>=0.21,<1"]
+
+[project.urls]
+Homepage = "https://github.com/narayanareddy11/local-llm-devsecops"
+Repository = "https://github.com/narayanareddy11/local-llm-devsecops"
+Issues = "https://github.com/narayanareddy11/local-llm-devsecops/issues"
 
 [dependency-groups]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1", "pyyaml>=6,<7"]
