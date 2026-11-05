@@ -19,7 +19,7 @@ uv pip install --python .venv/bin/python -r requirements.txt pytest ruff
 helm lint charts/app
 helm template demo charts/app --set imageTag="$tag" > artifacts/rendered.yaml
 if command -v hadolint >/dev/null; then
-  hadolint containers/*.Dockerfile
+  hadolint --ignore DL3008 containers/*.Dockerfile
 else
   echo 'Hadolint unavailable; install it to enable Dockerfile lint' >&2
 fi

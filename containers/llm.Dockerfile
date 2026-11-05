@@ -9,7 +9,7 @@ COPY --from=build /src/build/bin/llama-server /usr/local/bin/llama-server
 COPY --from=build /src/LICENSE /usr/share/licenses/llama.cpp/LICENSE
 USER 10001:10001
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s CMD curl -fsS http://127.0.0.1:8080/health || exit 1
+HEALTHCHECK --interval=30s --timeout=3s CMD ["curl", "-fsS", "http://127.0.0.1:8080/health"]
 ENTRYPOINT ["llama-server"]
 CMD ["--host", "0.0.0.0", "--port", "8080", "--model", "/models/qwen2.5-0.5b-instruct-q4_k_m.gguf", "--alias", "qwen-local", "--ctx-size", "2048", "--threads", "2", "--parallel", "1", "--n-gpu-layers", "0", "--metrics"]
 
