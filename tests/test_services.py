@@ -30,12 +30,19 @@ def test_assistant_uses_context_and_internal_llm():
     assert seen[0].headers["x-request-id"] == seen[1].headers["x-request-id"]
 
 
-@pytest.mark.parametrize("payload", [{"question": ""}, {"question": "   "},
-                                      {"question": "x" * 2001},
-                                      {"question": "x", "item_id": "../../secret"}])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"question": ""},
+        {"question": "   "},
+        {"question": "x" * 2001},
+        {"question": "x", "item_id": "../../secret"},
+    ],
+)
 def test_invalid_input_never_calls_upstream(payload):
     def unexpected(request):
         pytest.fail("Invalid input reached upstream")
+
     with TestClient(create_app("assistant", httpx.MockTransport(unexpected))) as client:
         assert client.post("/answer", json=payload).status_code == 422
 
@@ -44,13 +51,17 @@ def test_unknown_item_does_not_call_model():
     def handler(request):
         assert request.url.host == "catalog"
         return httpx.Response(404)
+
     with TestClient(create_app("assistant", httpx.MockTransport(handler))) as client:
-        assert client.post("/answer", json={"question": "x", "item_id": "item-9"}).status_code == 404
+        assert (
+            client.post("/answer", json={"question": "x", "item_id": "item-9"}).status_code == 404
+        )
 
 
 def test_upstream_timeout_is_504():
     def handler(request):
         raise httpx.ReadTimeout("private backend address", request=request)
+
     with TestClient(create_app("gateway", httpx.MockTransport(handler))) as client:
         response = client.get("/api/v1/items")
         assert response.status_code == 504
@@ -58,7 +69,9 @@ def test_upstream_timeout_is_504():
 
 
 def test_malformed_model_response_is_502():
-    with TestClient(create_app("assistant", httpx.MockTransport(lambda r: httpx.Response(200, json={})))) as client:
+    with TestClient(
+        create_app("assistant", httpx.MockTransport(lambda r: httpx.Response(200, json={})))
+    ) as client:
         assert client.post("/answer", json={"question": "hello"}).status_code == 502
 
 
@@ -67,9 +80,9 @@ def test_gateway_forwards_question():
         assert request.url.path == "/answer"
         assert b"hello" in request.content
         return httpx.Response(200, json={"answer": "Hi"})
+
     with TestClient(create_app("gateway", httpx.MockTransport(handler))) as client:
         response = client.post("/api/v1/ask", json={"question": "hello"})
         assert response.json() == {"answer": "Hi"}
         assert "x-request-id" in response.headers
         assert "app_requests_total" in client.get("/metrics").text
-
