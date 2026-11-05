@@ -21,7 +21,7 @@ Install open-source Colima, Moby/Docker CLI, Kind, kubectl, Helm, OpenTofu, Triv
 ./scripts/pipeline.sh full        # separate complete image scan and SBOM run
 ```
 
-GitHub Actions shows three named stages: **Check | Pytest Ruff Helm Hadolint**, **Release | Docker Kind Helm Web Chat**, and **Full Scan | Trivy SBOM Docker**. A push runs only the lightweight check. To deploy, open **Actions → Local DevSecOps CI CD → Run workflow**, select `release`, and keep the Mac runner online. Select `full` separately when you want all tests and security scans.
+GitHub Actions shows ten short, named check stages: checkout, Python setup, focused tests, Ruff lint, Ruff format, Helm lint, manifest render, Hadolint, shell syntax, and evidence upload. A push runs only these lightweight checks. Docker and Kind release and full Trivy/SBOM scans are separate manual stages. To deploy, open **Actions → Local DevSecOps CI CD → Run workflow**, select `release`, and keep the Mac runner online. Select `full` separately when you want all tests and security scans.
 
 After release, open `https://llm.local:8443/` in a browser. The local certificate is self-signed, so the browser will ask you to trust it for this demo. The page displays catalog items and sends questions to `/api/v1/ask`, which reaches the assistant and local model. To inspect the page without the TLS warning, run `KUBECONFIG=$PWD/.state/dev/kubeconfig kubectl -n app-dev port-forward svc/gateway 18000:8000` and open `http://localhost:18000/`; use the HTTPS ingress URL for the actual assessment demonstration.
 

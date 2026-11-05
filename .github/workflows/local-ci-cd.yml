@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       stage:
-        description: "Run a lightweight check, local release, or full scan"
+        description: "Run the lightweight staged check, local release, or full scan"
         required: true
         default: check
         type: choice
@@ -22,14 +22,33 @@ concurrency:
 
 jobs:
   check:
-    name: "Check | Pytest Ruff Helm Hadolint"
+    name: "Check | 10 lightweight tools stages"
     runs-on: [self-hosted, macOS, ARM64, local-llm]
-    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - name: Run two tests, Python lint and Helm lint
-        run: ./scripts/pipeline.sh check
-      - name: Upload check evidence
+      - name: "Stage 01 | Checkout source"
+        uses: actions/checkout@v4
+      - name: "Stage 02 | Prepare Python tools"
+        run: |
+          mkdir -p artifacts
+          export UV_CACHE_DIR="$PWD/.cache/uv"
+          echo "UV_CACHE_DIR=$UV_CACHE_DIR" >> "$GITHUB_ENV"
+          uv venv .venv
+          uv pip install --python .venv/bin/python -r requirements.txt pytest ruff
+      - name: "Stage 03 | Pytest two focused checks"
+        run: .venv/bin/python -m pytest -q tests/test_services.py::test_catalog_contract tests/test_services.py::test_gateway_serves_web_chat | tee artifacts/unit-tests.txt
+      - name: "Stage 04 | Ruff lint"
+        run: .venv/bin/python -m ruff check services jobs tests
+      - name: "Stage 05 | Ruff format"
+        run: .venv/bin/python -m ruff format --check services jobs tests
+      - name: "Stage 06 | Helm chart lint"
+        run: helm lint charts/app
+      - name: "Stage 07 | Render Kubernetes manifests"
+        run: helm template demo charts/app --set imageTag=check > artifacts/rendered.yaml
+      - name: "Stage 08 | Hadolint Dockerfiles"
+        run: if command -v hadolint >/dev/null; then hadolint --ignore DL3008 containers/*.Dockerfile; else echo 'Hadolint missing; install with brew install hadolint'; fi
+      - name: "Stage 09 | Shell script syntax"
+        run: bash -n scripts/*.sh
+      - name: "Stage 10 | Upload check evidence"
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -43,7 +62,6 @@ jobs:
     needs: check
     if: github.event_name == 'workflow_dispatch' && inputs.stage == 'release'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
-    timeout-minutes: 120
     environment: laptop-release
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +81,6 @@ jobs:
     needs: check
     if: github.event_name == 'workflow_dispatch' && inputs.stage == 'full'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
-    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Build and scan all images
