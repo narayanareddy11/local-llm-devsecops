@@ -94,14 +94,11 @@ if [[ ! -f "$state/tls.key" ]]; then
 fi
 kubectl -n "$namespace" create secret tls gateway-tls --cert="$state/tls.crt" --key="$state/tls.key" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 for role in gateway catalog assistant llm; do kind load docker-image "local-llm/$role:$tag" --name "$cluster"; done
-gateway_ip="$(docker inspect "$cluster-control-plane" --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}')"
-node_ip="$(docker inspect "$cluster-control-plane" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')"
-if [[ -z "$gateway_ip" || -z "$node_ip" ]]; then echo 'Cannot determine local ingress source IPs' >&2; exit 1; fi
-# Kind's published localhost port can reach Traefik with the bridge gateway,
-# the Kind node address, or loopback as the peer address depending on Docker's
-# port-forward implementation. The host port itself is bound to 127.0.0.1.
+# Kind's HTTPS host port is bound to 127.0.0.1. Docker/Colima source NAT makes
+# Traefik's peer address differ across hosts, so the local-only bind is the
+# access boundary; do not enforce a source-IP allowlist inside the cluster.
 kubectl -n "$namespace" delete job model-download --ignore-not-found --wait=true
-helm upgrade --install app charts/app --namespace "$namespace" --set "imageTag=$tag" --set "environment=$environment" --set "allowedCIDRs[0]=$gateway_ip/32" --set "allowedCIDRs[1]=$node_ip/32" --set "allowedCIDRs[2]=127.0.0.1/32" --wait --wait-for-jobs --timeout 15m --history-max 5
+helm upgrade --install app charts/app --namespace "$namespace" --set "imageTag=$tag" --set "environment=$environment" --set ipAllowList.enabled=false --wait --wait-for-jobs --timeout 15m --history-max 5
 kubectl -n "$namespace" get pods,jobs,hpa,ingress -o wide > "artifacts/$environment-resources.txt"
 "$PWD/scripts/demo.sh" "$environment" | tee "artifacts/$environment-demo.txt"
 echo "Release passed for $environment at $tag"

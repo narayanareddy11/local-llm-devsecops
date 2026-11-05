@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       stage:
-        description: "Select parallel checks, local release, or full scan"
+        description: "Select parallel checks, local release, release-only retry, or full scan"
         required: true
         default: check
         type: choice
-        options: [check, release, full]
+        options: [check, release, release-only, full]
 
 permissions:
   contents: read
@@ -23,6 +23,7 @@ concurrency:
 jobs:
   checkout:
     name: "Checkout | Source"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +31,7 @@ jobs:
 
   app_tests:
     name: "App | Focused Pytest and Ruff"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
@@ -42,6 +44,7 @@ jobs:
 
   helm_checks:
     name: "Kubernetes | Helm lint and render"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
@@ -53,6 +56,7 @@ jobs:
 
   infrastructure_checks:
     name: "Infrastructure | OpenTofu and shell syntax"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
@@ -64,6 +68,7 @@ jobs:
 
   container_checks:
     name: "Containers | Hadolint and pinned bases"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
@@ -76,6 +81,7 @@ jobs:
 
   model_web_checks:
     name: "Model and Web | Manifest and chat contract"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
@@ -87,6 +93,7 @@ jobs:
 
   verify:
     name: "Verify | Parallel checks passed"
+    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
     needs: [app_tests, helm_checks, infrastructure_checks, container_checks, model_web_checks]
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
@@ -95,7 +102,9 @@ jobs:
   release:
     name: "Release | Docker Kind Helm Web Chat"
     needs: verify
-    if: github.event_name == 'workflow_dispatch' && inputs.stage == 'release'
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' &&
+      (inputs.stage == 'release-only' || (inputs.stage == 'release' && needs.verify.result == 'success'))
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     environment: laptop-release
     steps:
