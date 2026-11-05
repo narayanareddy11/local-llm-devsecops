@@ -67,12 +67,13 @@ chmod 700 "$state"
 cluster="llm-$environment"
 "$iac" -chdir=infra/cluster init -backend-config="path=$state/cluster.tfstate" -input=false
 if [[ ! -s "$state/cluster.tfstate" ]] && kind get clusters | grep -Fxq "$cluster"; then
-  echo "Found existing Kind cluster $cluster without local IaC state; importing it"
-  "$iac" -chdir=infra/cluster import -var-file="$PWD/environments/$environment.tfvars" -var="kubeconfig_path=$state/kubeconfig" kind_cluster.local "$cluster"
+  echo "Reusing existing Kind cluster $cluster; its previous OpenTofu state is unavailable"
+  echo "Existing cluster reused; no OpenTofu plan was run" > "artifacts/$environment-plan.txt"
+else
+  "$iac" -chdir=infra/cluster plan -var-file="$PWD/environments/$environment.tfvars" -var="kubeconfig_path=$state/kubeconfig" -out="$state/cluster.tfplan" -input=false
+  "$iac" -chdir=infra/cluster show -no-color "$state/cluster.tfplan" > "artifacts/$environment-plan.txt"
+  "$iac" -chdir=infra/cluster apply -input=false -auto-approve "$state/cluster.tfplan"
 fi
-"$iac" -chdir=infra/cluster plan -var-file="$PWD/environments/$environment.tfvars" -var="kubeconfig_path=$state/kubeconfig" -out="$state/cluster.tfplan" -input=false
-"$iac" -chdir=infra/cluster show -no-color "$state/cluster.tfplan" > "artifacts/$environment-plan.txt"
-"$iac" -chdir=infra/cluster apply -input=false -auto-approve "$state/cluster.tfplan"
 export KUBECONFIG="$state/kubeconfig"
 if [[ ! -s "$KUBECONFIG" ]]; then kind export kubeconfig --name "$cluster" --kubeconfig "$KUBECONFIG"; fi
 kubectl config use-context "kind-$cluster" >/dev/null
