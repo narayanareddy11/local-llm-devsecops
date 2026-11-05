@@ -60,15 +60,21 @@ if [[ "$mode" == full ]]; then
   exit 0
 fi
 for command in kind kubectl openssl; do command -v "$command" >/dev/null || { echo "Missing release tool: $command" >&2; exit 2; }; done
-state="$PWD/.state/$environment"
+state_root="${LOCAL_LLM_STATE_DIR:-$HOME/.local/share/local-llm-devsecops}"
+state="$state_root/$environment"
 mkdir -p "$state"
 chmod 700 "$state"
+cluster="llm-$environment"
 "$iac" -chdir=infra/cluster init -backend-config="path=$state/cluster.tfstate" -input=false
+if [[ ! -s "$state/cluster.tfstate" ]] && kind get clusters | grep -Fxq "$cluster"; then
+  echo "Found existing Kind cluster $cluster without local IaC state; importing it"
+  "$iac" -chdir=infra/cluster import -var-file="$PWD/environments/$environment.tfvars" -var="kubeconfig_path=$state/kubeconfig" kind_cluster.local "$cluster"
+fi
 "$iac" -chdir=infra/cluster plan -var-file="$PWD/environments/$environment.tfvars" -var="kubeconfig_path=$state/kubeconfig" -out="$state/cluster.tfplan" -input=false
 "$iac" -chdir=infra/cluster show -no-color "$state/cluster.tfplan" > "artifacts/$environment-plan.txt"
 "$iac" -chdir=infra/cluster apply -input=false -auto-approve "$state/cluster.tfplan"
 export KUBECONFIG="$state/kubeconfig"
-cluster="llm-$environment"
+if [[ ! -s "$KUBECONFIG" ]]; then kind export kubeconfig --name "$cluster" --kubeconfig "$KUBECONFIG"; fi
 kubectl config use-context "kind-$cluster" >/dev/null
 helm repo add cilium https://helm.cilium.io --force-update >/dev/null
 helm repo add traefik https://traefik.github.io/charts --force-update >/dev/null
