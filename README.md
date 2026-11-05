@@ -13,7 +13,7 @@ Hugging Face (one-time download only) -> Job -> model PVC
 
 The repository includes application code, tests, pinned model metadata, images, a Kind cluster definition, Helm chart, a check/release script, and GitHub Actions workflow. A complete cluster and pipeline run has **not yet been verified** on this Mac; do not present it as a passing demo until the GitHub run and commands below pass. The current machine has an ARM64 Docker Desktop context; switch to open-source [Colima](https://colima.run/docs/installation/) before running this assessment. Allow at least 6 CPU cores, 8 GiB container VM memory, and 10 GiB free disk. Two full environments should run sequentially on an 8 GiB VM.
 
-Install open-source Colima, Moby/Docker CLI, Kind, kubectl, Helm, OpenTofu, Trivy, uv, OpenSSL, and GitHub CLI. `brew install colima docker kind kubectl helm opentofu trivy uv gh` is a convenient setup on macOS. Use `colima start --cpu 6 --memory 8 --disk 40` and `docker context use colima`; then confirm `docker context show` says `colima`.
+Install open-source Colima, Moby/Docker CLI, Kind, kubectl, Helm, OpenTofu, Trivy, Hadolint, uv, OpenSSL, and GitHub CLI. `brew install colima docker kind kubectl helm opentofu trivy hadolint uv gh` is a convenient setup on macOS. Use `colima start --cpu 6 --memory 8 --disk 40` and `docker context use colima`; then confirm `docker context show` says `colima`.
 
 ```bash
 ./scripts/pipeline.sh check
@@ -21,7 +21,7 @@ Install open-source Colima, Moby/Docker CLI, Kind, kubectl, Helm, OpenTofu, Triv
 ./scripts/demo.sh dev
 ```
 
-`check` runs application tests, Python lint and format checks, Helm lint and rendering, builds all four images, produces SPDX SBOMs, and fails on unfixed HIGH or CRITICAL image vulnerabilities. `release` runs check first, plans and applies a Kind cluster, installs Cilium, Traefik, and metrics-server, loads images, deploys Helm, then performs the end-to-end demo. Outputs go to ignored `artifacts/`; local state, kubeconfig, and TLS key stay in ignored `.state/`.
+`check` runs application tests, Python lint and format checks, Helm lint and rendering, Hadolint Dockerfile checks, Trivy configuration checks, builds all four images, runs a catalog container health smoke test, produces SPDX SBOMs, and fails on unfixed HIGH or CRITICAL image vulnerabilities. `release` runs check first, plans and applies a Kind cluster, installs Cilium, Traefik, and metrics-server, loads images, deploys Helm, then performs the end-to-end demo. Outputs go to ignored `artifacts/`; local state, kubeconfig, and TLS key stay in ignored `.state/`.
 
 Dev and prod use the same code with separate state directories, clusters, namespaces, and host ports (`8443`, `9443`). Add a third environment by copying a tfvars file, choosing a unique environment name and port, and adding the name to the script allowlists. This environment design isolates state but does not provide cloud-level failure isolation on one laptop.
 
@@ -38,6 +38,10 @@ Application pods are non-root with dropped capabilities, read-only root filesyst
 ## Demo, rollback, teardown
 
 Before presenting, verify `artifacts/dev-demo.txt` contains a real answer for `item-1`, show the model Job and CronJob, show HPA and scan/SBOM output, and run a negative ingress request from another container network source. Use `helm -n app-dev history app` and `helm -n app-dev rollback app <previous-revision> --wait` for rollback. Teardown: set `KUBECONFIG=$PWD/.state/dev/kubeconfig`, run `helm -n app-dev uninstall app`, `helm -n ingress-system uninstall traefik`, `helm -n kube-system uninstall cilium metrics-server`, then `tofu -chdir=infra/cluster destroy -var-file="$PWD/environments/dev.tfvars" -var="kubeconfig_path=$PWD/.state/dev/kubeconfig"`. Run the corresponding commands for prod separately. Keep `.state` until after destroy.
+
+## Chat tracing and LangSmith
+
+Application logs include a request ID, route, status, and latency without recording prompts or answers. This is local tracing for the assessment. [LangSmith](https://docs.smith.langchain.com/) sends traces to a hosted service, so it is deliberately not enabled in the local-only pipeline. Connecting it would require a separate opt-in configuration, an API key in a Kubernetes Secret, limited trace content, and an approved outbound route. No LangSmith connection has been tested or claimed.
 
 ## Design trade-offs and unfinished items
 
