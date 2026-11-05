@@ -32,6 +32,53 @@ For a visual end-to-end explanation, see the [End-to-End Workflow guide](WORKFLO
 | `tests/` | Application and model-contract tests |
 | `WORKFLOW.md` | End-to-end pipeline, deployment, request flow, and verification diagram |
 
+## End-to-end workflow
+
+```mermaid
+flowchart TD
+    DEV[Developer push or manual workflow dispatch] --> CI[GitHub Actions on self-hosted macOS ARM64 runner]
+
+    CI --> TESTS[Application tests and Ruff]
+    CI --> HELM[Helm lint and render]
+    CI --> INFRA[OpenTofu format and shell checks]
+    CI --> CONTAINER[Dockerfile and base-image checks]
+    CI --> MODEL[Model manifest and web checks]
+
+    TESTS --> VERIFY[Verify gate]
+    HELM --> VERIFY
+    INFRA --> VERIFY
+    CONTAINER --> VERIFY
+    MODEL --> VERIFY
+
+    VERIFY --> STAGE{Selected stage}
+    STAGE -->|check| CHECKDONE[Checks complete]
+    STAGE -->|release dev or prod| CLUSTER[OpenTofu creates or reuses Kind cluster]
+    STAGE -->|full| SCAN[Trivy scans and SPDX SBOM]
+
+    CLUSTER --> PLATFORM[Install Cilium, Traefik, and metrics-server]
+    PLATFORM --> IMAGES[Build images and load them into Kind]
+    IMAGES --> HELMDEPLOY[Helm deploys the app chart]
+
+    HELMDEPLOY --> WORKLOADS[Gateway, catalog, assistant, LLM, jobs, PVC, policies, and TLS ingress]
+    WORKLOADS --> DOWNLOAD[Model download Job verifies SHA-256]
+    DOWNLOAD --> PVC[Read-only model PVC]
+    PVC --> LLM[llama.cpp LLM pod]
+    WORKLOADS --> SMOKE[Health, catalog, chat, HPA, and model checks]
+    SMOKE --> EVIDENCE[Artifacts and diagnostics]
+
+    BROWSER[Browser or curl on localhost] --> INGRESS[Traefik TLS ingress]
+    INGRESS --> GATEWAY[FastAPI gateway]
+    GATEWAY --> CATALOG[Catalog service]
+    GATEWAY --> ASSISTANT[Assistant service]
+    ASSISTANT --> CATALOG
+    ASSISTANT --> LLM
+    LLM --> PVC
+
+    CRON[Daily model-check CronJob] --> PVC
+```
+
+For the step-by-step explanation and command phases, see the [full workflow guide](WORKFLOW.md).
+
 The project is intentionally local-first: model inference, catalog data, application traffic, and deployment remain on the laptop. GitHub Actions orchestrates the trusted self-hosted runner but does not host the model or application runtime.
 
 ```text
