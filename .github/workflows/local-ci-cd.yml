@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       stage:
-        description: "Select parallel checks, local release, release-only retry, or full scan"
+        description: "Select checks, local release, release-only retry, diagnostics, or full scan"
         required: true
         default: check
         type: choice
-        options: [check, release, release-only, full]
+        options: [check, release, release-only, diagnose, full]
 
 permissions:
   contents: read
@@ -23,7 +23,7 @@ concurrency:
 jobs:
   checkout:
     name: "Checkout | Source"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
+    if: github.event_name != 'workflow_dispatch' || (inputs.stage != 'release-only' && inputs.stage != 'diagnose')
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +31,7 @@ jobs:
 
   app_tests:
     name: "App | Focused Pytest and Ruff"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
+    if: github.event_name != 'workflow_dispatch' || (inputs.stage != 'release-only' && inputs.stage != 'diagnose')
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
@@ -44,7 +44,7 @@ jobs:
 
   helm_checks:
     name: "Kubernetes | Helm lint and render"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
+    if: github.event_name != 'workflow_dispatch' || (inputs.stage != 'release-only' && inputs.stage != 'diagnose')
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
@@ -56,7 +56,7 @@ jobs:
 
   infrastructure_checks:
     name: "Infrastructure | OpenTofu and shell syntax"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
+    if: github.event_name != 'workflow_dispatch' || (inputs.stage != 'release-only' && inputs.stage != 'diagnose')
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
@@ -68,7 +68,7 @@ jobs:
 
   container_checks:
     name: "Containers | Hadolint and pinned bases"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
+    if: github.event_name != 'workflow_dispatch' || (inputs.stage != 'release-only' && inputs.stage != 'diagnose')
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
@@ -81,7 +81,7 @@ jobs:
 
   model_web_checks:
     name: "Model and Web | Manifest and chat contract"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
+    if: github.event_name != 'workflow_dispatch' || (inputs.stage != 'release-only' && inputs.stage != 'diagnose')
     needs: checkout
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
@@ -93,7 +93,7 @@ jobs:
 
   verify:
     name: "Verify | Parallel checks passed"
-    if: github.event_name != 'workflow_dispatch' || inputs.stage != 'release-only'
+    if: github.event_name != 'workflow_dispatch' || (inputs.stage != 'release-only' && inputs.stage != 'diagnose')
     needs: [app_tests, helm_checks, infrastructure_checks, container_checks, model_web_checks]
     runs-on: [self-hosted, macOS, ARM64, local-llm]
     steps:
@@ -119,3 +119,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: ./scripts/pipeline.sh full
+
+  diagnostics:
+    name: "Diagnostics | Local chat and model pods"
+    if: github.event_name == 'workflow_dispatch' && inputs.stage == 'diagnose'
+    runs-on: [self-hosted, macOS, ARM64, local-llm]
+    steps:
+      - name: Collect local Kubernetes state and service logs
+        run: |
+          export KUBECONFIG="$HOME/.local/share/local-llm-devsecops/dev/kubeconfig"
+          kubectl -n app-dev get pods,services,endpoints,jobs -o wide
+          kubectl -n app-dev describe pods -l app=llm
+          kubectl -n app-dev logs -l app=assistant --all-containers=true --prefix=true --tail=80 || true
+          kubectl -n app-dev logs -l app=llm --all-containers=true --prefix=true --tail=120 || true
