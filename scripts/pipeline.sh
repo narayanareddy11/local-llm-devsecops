@@ -5,11 +5,12 @@ mode="${1:-}"
 environment="${2:-dev}"
 if [[ "$environment" != dev && "$environment" != prod ]]; then echo 'Environment must be dev or prod' >&2; exit 2; fi
 if [[ "$mode" != check && "$mode" != release ]]; then echo 'Usage: pipeline.sh check|release [dev|prod]' >&2; exit 2; fi
-for command in uv docker trivy helm; do command -v "$command" >/dev/null || { echo "Missing required tool: $command" >&2; exit 2; }; done
+for command in uv docker trivy helm hadolint curl; do command -v "$command" >/dev/null || { echo "Missing required tool: $command" >&2; exit 2; }; done
 if [[ "$(docker context show)" == desktop-linux ]]; then echo 'Use open-source Colima/Moby, not Docker Desktop, for the assessment' >&2; exit 2; fi
 docker info >/dev/null
 mkdir -p artifacts
 tag="$(git rev-parse --short=12 HEAD)"
+export UV_CACHE_DIR="$PWD/.cache/uv"
 uv venv .venv >/dev/null
 uv pip install --python .venv/bin/python -e . pytest ruff
 .venv/bin/python -m pytest -q | tee artifacts/unit-tests.txt
@@ -17,12 +18,24 @@ uv pip install --python .venv/bin/python -e . pytest ruff
 .venv/bin/python -m ruff format --check services jobs tests
 helm lint charts/app
 helm template demo charts/app --set imageTag="$tag" > artifacts/rendered.yaml
+hadolint containers/*.Dockerfile
+trivy config --severity HIGH,CRITICAL --exit-code 1 infra charts
 if command -v tofu >/dev/null; then iac=tofu; elif command -v terraform >/dev/null; then iac=terraform; else echo 'OpenTofu is required' >&2; exit 2; fi
 "$iac" -chdir=infra/cluster fmt -check
 for role in gateway catalog assistant; do
   docker build --build-arg "SERVICE=$role" -f containers/app.Dockerfile -t "local-llm/$role:$tag" .
 done
 docker build -f containers/llm.Dockerfile -t "local-llm/llm:$tag" .
+smoke="$(docker run -d --rm -p 127.0.0.1::8000 "local-llm/catalog:$tag")"
+trap 'docker rm -f "$smoke" >/dev/null 2>&1 || true' EXIT
+smoke_port="$(docker port "$smoke" 8000/tcp | tail -n 1 | sed 's/.*://')"
+for attempt in {1..30}; do
+  if curl --fail --silent "http://127.0.0.1:$smoke_port/healthz" >/dev/null; then break; fi
+  sleep 1
+done
+curl --fail --silent --show-error "http://127.0.0.1:$smoke_port/items/item-1" > artifacts/container-smoke.json
+docker rm -f "$smoke" >/dev/null
+trap - EXIT
 for role in gateway catalog assistant llm; do
   image="local-llm/$role:$tag"
   trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --format json -o "artifacts/$role-scan.json" "$image" || { echo "Vulnerability gate failed for $image" >&2; exit 1; }
