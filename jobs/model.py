@@ -25,8 +25,10 @@ def deliver(directory: Path, manifest: dict):
         verify(target, manifest)
         print("Existing model verified; no download needed", flush=True)
         return
-    url = (f"https://huggingface.co/{manifest['repository']}/resolve/"
-           f"{manifest['revision']}/{manifest['filename']}")
+    url = (
+        f"https://huggingface.co/{manifest['repository']}/resolve/"
+        f"{manifest['revision']}/{manifest['filename']}"
+    )
     temporary = target.with_suffix(".part")
     try:
         with urllib.request.urlopen(url, timeout=120) as source, temporary.open("wb") as output:
@@ -40,11 +42,19 @@ def deliver(directory: Path, manifest: dict):
 
 def evaluate():
     for question in ["Reply with one short greeting.", "What is two plus two? Answer briefly."]:
-        body = json.dumps({"model": "qwen-local", "messages": [{"role": "user", "content": question}],
-                           "temperature": 0, "max_tokens": 32}).encode()
+        body = json.dumps(
+            {
+                "model": "qwen-local",
+                "messages": [{"role": "user", "content": question}],
+                "temperature": 0,
+                "max_tokens": 32,
+            }
+        ).encode()
         request = urllib.request.Request(
-            os.getenv("LLM_URL", "http://llm:8080") + "/v1/chat/completions", data=body,
-            headers={"Content-Type": "application/json"}, method="POST",
+            os.getenv("LLM_URL", "http://llm:8080") + "/v1/chat/completions",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
         with urllib.request.urlopen(request, timeout=120) as response:
             result = json.load(response)
@@ -66,4 +76,3 @@ if __name__ == "__main__":
             evaluate()
     else:
         raise SystemExit("Usage: python -m jobs.model download|verify|evaluate")
-
