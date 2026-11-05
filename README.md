@@ -2,6 +2,35 @@
 
 This repository implements the take-home assessment as a laptop-only proof of concept. It uses three FastAPI services, a CPU-only `llama.cpp` workload, Kind, Cilium, Traefik, OpenTofu-compatible IaC, and a self-hosted GitHub Actions runner on macOS ARM64. The private catalog and inference services use ClusterIP only. The only exposed route is the localhost gateway through TLS.
 
+## Repository overview
+
+- Repository: [narayanareddy11/local-llm-devsecops](https://github.com/narayanareddy11/local-llm-devsecops)
+- Current release: `v1.0.0`
+- Runtime target: Apple Silicon Mac with Colima and Kind
+- Inference: local CPU-only Qwen 2.5 0.5B through `llama.cpp`
+- Application: FastAPI gateway, catalog, and assistant services
+- Delivery: GitHub Actions on a self-hosted macOS ARM64 runner
+- Infrastructure: OpenTofu, Kubernetes, Helm, Cilium, and Traefik
+- Security: pinned container bases and model metadata, restricted containers, default-deny network policies, TLS ingress, Trivy scanning, and SPDX SBOM generation
+- License: MIT for repository code; Apache-2.0 for the separately distributed Qwen model
+
+### Repository layout
+
+| Path | Purpose |
+| --- | --- |
+| `.github/workflows/` | Parallel CI checks, release deployment, full security scan, and diagnostics |
+| `services/` | Gateway, catalog, assistant API, and browser chat interface |
+| `jobs/` | Model download and integrity-check job logic |
+| `containers/` | Pinned application and `llama.cpp` container builds |
+| `charts/app/` | Helm chart for workloads, ingress, jobs, and network policies |
+| `infra/cluster/` | OpenTofu definition for the local Kind cluster |
+| `environments/` | Separate development and production cluster variables |
+| `model/` | Pinned model revision, filename, size, license, and SHA-256 metadata |
+| `scripts/` | Validation, release, runner setup, and demo commands |
+| `tests/` | Application and model-contract tests |
+
+The project is intentionally local-first: model inference, catalog data, application traffic, and deployment remain on the laptop. GitHub Actions orchestrates the trusted self-hosted runner but does not host the model or application runtime.
+
 ```text
 Mac localhost:8443 -> Traefik TLS -> gateway
                                             |-> catalog
@@ -18,15 +47,70 @@ The app runs on the Mac's local Kubernetes cluster. It is not a public internet 
 - Catalog: `https://llm.local:8443/api/v1/items`
 - Chat API: `POST https://llm.local:8443/api/v1/ask`
 
-If `llm.local` does not resolve on the Mac, add `127.0.0.1 llm.local` to `/etc/hosts`. The demo uses a local self-signed certificate; accept the browser warning for this laptop-only proof of concept. In the UI, ask “Summarize this item in one sentence” and select `item-1` to exercise Qwen through the Kubernetes services.
+### Quick Mac browser demo
 
-For a browser test without ingress or TLS, run `KUBECONFIG=$HOME/.local/share/local-llm-devsecops/dev/kubeconfig kubectl -n app-dev port-forward svc/gateway 18000:8000` and open **http://localhost:18000/**. The chat API request can also be sent with:
+The most reliable presentation route uses a local port-forward and does not require DNS or a self-signed TLS exception.
+
+1. Confirm the local release workflow completed successfully and the Kind cluster is running.
+2. Open Terminal on the Mac and run:
+
+   ```bash
+   export KUBECONFIG="$HOME/.local/share/local-llm-devsecops/dev/kubeconfig"
+   kubectl -n app-dev port-forward svc/gateway 18000:8000
+   ```
+
+3. Keep that Terminal window open. A successful forward prints:
+
+   ```text
+   Forwarding from 127.0.0.1:18000 -> 8000
+   Forwarding from [::1]:18000 -> 8000
+   ```
+
+4. Open **http://localhost:18000/** in the browser.
+5. Select a catalog item, enter a question, and choose **Ask assistant**.
+
+The demo catalog contains these items:
+
+| Item | Catalog facts | Example question |
+| --- | --- | --- |
+| Trail backpack | 25 litre, water-resistant hiking backpack | `Is this backpack water-resistant and what is its capacity?` |
+| Travel mug | 350 ml, insulated stainless steel mug | `What material is this mug made from?` |
+| Desk lamp | Adjustable LED lamp with three brightness levels | `How many brightness levels does this lamp have?` |
+
+A reliable general demonstration prompt is:
+
+```text
+Summarize this item in one sentence using only the catalog information.
+```
+
+The assistant only has the supplied product catalog. It cannot answer questions about orders, customers, shipping, inventory, or other external data. A question such as `Where is my order?` should produce a missing-information response rather than invented details.
+
+The chat API can also be tested while the port-forward is running:
 
 ```bash
 curl --fail --silent --show-error http://localhost:18000/api/v1/ask \
   -H 'Content-Type: application/json' \
   --data '{"question":"Summarize this item in one sentence","item_id":"item-1"}'
 ```
+
+### HTTPS ingress access
+
+To use the TLS ingress route, add the local hostname once:
+
+```bash
+echo '127.0.0.1 llm.local' | sudo tee -a /etc/hosts
+sudo dscacheutil -flushcache
+```
+
+Then open **https://llm.local:8443/**. The demo uses a locally generated self-signed certificate, so the browser displays a certificate warning until that certificate is trusted locally.
+
+### Browser troubleshooting
+
+- `ERR_CONNECTION_REFUSED` at `localhost:18000` means the port-forward is not running. Start the command above and keep its Terminal window open.
+- `Could not resolve host: llm.local` means the `/etc/hosts` entry is missing.
+- A certificate warning at `https://llm.local:8443` is expected for the self-signed development certificate. Use the HTTP port-forward route for a presentation without that warning.
+- If port 18000 is already in use, run `kubectl -n app-dev port-forward svc/gateway 18001:8000` and open **http://localhost:18001/**.
+- If the page opens but a request fails, inspect the workload with `kubectl -n app-dev get pods,endpoints` and confirm every application pod is ready.
 
 ## Status and prerequisites
 
