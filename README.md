@@ -2,6 +2,8 @@
 
 This repository implements the take-home assessment as a laptop-only proof of concept. It uses three FastAPI services, a CPU-only `llama.cpp` workload, Kind, Cilium, Traefik, OpenTofu-compatible IaC, and a self-hosted GitHub Actions runner on macOS ARM64. The private catalog and inference services use ClusterIP only. The only exposed route is the localhost gateway through TLS.
 
+For a visual end-to-end explanation, see the [End-to-End Workflow guide](WORKFLOW.md).
+
 ## Repository overview
 
 - Repository: [narayanareddy11/local-llm-devsecops](https://github.com/narayanareddy11/local-llm-devsecops)
@@ -28,6 +30,7 @@ This repository implements the take-home assessment as a laptop-only proof of co
 | `model/` | Pinned model revision, filename, size, license, and SHA-256 metadata |
 | `scripts/` | Validation, release, runner setup, and demo commands |
 | `tests/` | Application and model-contract tests |
+| `WORKFLOW.md` | End-to-end pipeline, deployment, request flow, and verification diagram |
 
 The project is intentionally local-first: model inference, catalog data, application traffic, and deployment remain on the laptop. GitHub Actions orchestrates the trusted self-hosted runner but does not host the model or application runtime.
 
